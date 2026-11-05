@@ -182,3 +182,39 @@ class TestAeroFF:
         d = json.loads(r.stdout)
         assert d["claims_status"]["navier_stokes_regularity_implication"] == "NOT_ESTABLISHED"
         assert d["claims_status"]["host_ai_accuracy_percentages"] == "UNVERIFIED_NO_PROTOCOL"
+
+
+class TestFormulaGovernance:
+    def test_lambda_v1_contract(self):
+        import sys; sys.path.insert(0, str(SRC))
+        from formula_governance import lambda_v1, gate_v1, LambdaV1Error, NO_GO, ZERO_VETO, GO, BLOCK
+        assert lambda_v1([1.0, 1.0], [0.5, 0.5]) == 1.0
+        assert lambda_v1([0.0, 0.5], [0.5, 0.5]) == 0.0
+        assert gate_v1([0.0, 1.0], [0.5, 0.5], 0.5) == (NO_GO, ZERO_VETO)
+        assert gate_v1([1.0, 1.0], [0.5, 0.5], 0.5)[0] == GO
+        assert gate_v1([1.0], [1.0], 1.5) == (BLOCK, "LAMBDA_TAU_INVALID")
+        with pytest.raises(LambdaV1Error) as e:
+            lambda_v1([1.0], [1.5])
+        assert e.value.code == "LAMBDA_WEIGHT_SUM"
+
+    def test_failed_check_is_zero_veto(self):
+        import sys; sys.path.insert(0, str(SRC))
+        import formula_governance as FG
+        original = FG.acoustic_axes
+        FG.acoustic_axes = lambda: ([1.0, 0.0, 1.0], ["a", "b", "c"])
+        try:
+            r = FG.governed_validation(tau=0.5)
+            assert r["verdict"] == "NO_GO" and r["code"] == "ZERO_VETO"
+        finally:
+            FG.acoustic_axes = original
+
+    def test_governed_validation_go_with_honest_labels(self):
+        import sys, json, subprocess
+        r = subprocess.run([sys.executable, str(SRC / "formula_governance.py")],
+                           capture_output=True)
+        assert r.returncode == 0
+        d = json.loads(r.stdout)
+        assert d["verdict"] == "GO"
+        assert d["lambda_status"] == "ADVISORY"
+        assert d["claims"]["ns_regularity"] == "NOT_ESTABLISHED"
+        assert "not a theorem" in d["conjecture_status"]
