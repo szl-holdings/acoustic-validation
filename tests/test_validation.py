@@ -128,3 +128,57 @@ class TestFailureInjection:
         coeffs = identify_coefficients(traj)
         wrong = {k: -v for k, v in coeffs.items()}
         assert abs(wrong["alpha"] - (-1.0)) > 0.1
+
+
+class TestAeroFF:
+    def test_murnaghan_velocity_responds_to_stress(self):
+        import sys; sys.path.insert(0, str(SRC))
+        from aero_ff import murnaghan_vL
+        v0 = murnaghan_vL(100e9, 80e9, -100e9, -50e9, -30e9, 0.0, 7800)
+        v1 = murnaghan_vL(100e9, 80e9, -100e9, -50e9, -30e9, 50e6, 7800)
+        assert v0 > 0 and v1 > 0 and v1 != v0
+
+    def test_murnaghan_ABC_not_individually_identifiable(self):
+        import sys; sys.path.insert(0, str(SRC))
+        from aero_ff import murnaghan_identifiability
+        r = murnaghan_identifiability(100e9, 80e9, [0.0, 1e6, 5e6], 7800)
+        assert r["sensitivity_rank"] == 1
+        assert r["individual_ABC_identifiable"] is False
+
+    def test_gain_db_ambiguity_surfaced(self):
+        import sys, math; sys.path.insert(0, str(SRC))
+        from aero_ff import ep_gain_db
+        # G = 2/(1-0.25) = 8/3: amplitude dB = 20log10(G), power dB = 10log10(G)
+        assert abs(ep_gain_db(0.5) - 20 * math.log10(8/3)) < 1e-9
+        assert abs(ep_gain_db(0.5, power_ratio=True) - 10 * math.log10(8/3)) < 1e-9
+
+    def test_true_EP_requires_defective_eigenvectors(self):
+        import sys; sys.path.insert(0, str(SRC))
+        from aero_ff import exceptional_point_2x2
+        ep = exceptional_point_2x2(1.0, 0.5, 0.5)
+        assert ep["is_true_EP"] and ep["defective"] and ep["eigenvectors_parallel"]
+        off = exceptional_point_2x2(1.0, 0.5, 0.25)
+        assert not off["is_true_EP"] and not off["coalesced"]
+
+    def test_rankine_hugoniot_scaling(self):
+        import sys; sys.path.insert(0, str(SRC))
+        from aero_ff import rankine_hugoniot
+        assert rankine_hugoniot(340.0, 1.4, 50.0) == 400.0
+
+    def test_chern_number_quantization(self):
+        import sys; sys.path.insert(0, str(SRC))
+        from aero_ff import chern_number_dirac
+        assert chern_number_dirac(-1.0, nk=24) == -1
+        assert chern_number_dirac(1.0, nk=24) == 1
+        assert chern_number_dirac(3.0, nk=24) == 0
+
+    def test_selfcheck_exit_code_zero(self):
+        r = subprocess.run([sys.executable, str(SRC / "aero_ff.py")], capture_output=True)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+    def test_claims_status_labels_honest(self):
+        import sys, json; sys.path.insert(0, str(SRC))
+        r = subprocess.run([sys.executable, str(SRC / "aero_ff.py")], capture_output=True)
+        d = json.loads(r.stdout)
+        assert d["claims_status"]["navier_stokes_regularity_implication"] == "NOT_ESTABLISHED"
+        assert d["claims_status"]["host_ai_accuracy_percentages"] == "UNVERIFIED_NO_PROTOCOL"
