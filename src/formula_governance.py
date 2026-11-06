@@ -139,7 +139,15 @@ def governed_validation(tau: float,
         n = len(scores)
         weights = [1.0 / n] * n
     verdict, code = gate_v1(scores, weights, tau)
-    lam = lambda_v1(scores, weights)
+    try:
+        lam = lambda_v1(scores, weights)
+    except LambdaV1Error as e:
+        # gate_v1 already returned BLOCK; preserve the fail-closed receipt
+        # instead of raising before the caller sees it.
+        if verdict != BLOCK:
+            raise
+        lam = 0.0
+        code = e.code
     receipt = {
         "schema": "szl.acoustic.governed/v1",
         "lambda_schema": SCHEMA,

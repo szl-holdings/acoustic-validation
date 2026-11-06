@@ -218,3 +218,14 @@ class TestFormulaGovernance:
         assert d["lambda_status"] == "ADVISORY"
         assert d["claims"]["ns_regularity"] == "NOT_ESTABLISHED"
         assert "not a theorem" in d["conjecture_status"]
+
+
+def test_governed_validation_invalid_weights_fail_closed_receipt():
+    """Invalid weights must return a BLOCK receipt, not raise before the
+    caller sees the decision (Phase A A1)."""
+    import sys; sys.path.insert(0, str(SRC))
+    from formula_governance import governed_validation
+    r = governed_validation(0.5, weights=[1.5, -0.5])
+    assert r["verdict"] == "BLOCK"
+    assert r["code"] == "LAMBDA_LENGTH_MISMATCH"
+    assert r["lambda"] == 0.0
