@@ -65,3 +65,7 @@ python src/duffing.py    # exits 0 on pass, 1 on fail
 ## License
 
 Apache-2.0
+
+## Relation to the estate
+
+Part of the [SZL Holdings](https://github.com/szl-holdings) GitHub estate; models, datasets and Spaces are published under the [SZLHOLDINGS](https://huggingface.co/SZLHOLDINGS) Hugging Face org.
