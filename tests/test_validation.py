@@ -294,17 +294,16 @@ class TestMurnaghanIdentifiabilityIsComputed:
     def test_rank_follows_the_formula(self, monkeypatch):
         # Falsifiability: under a stress law where A, B, C enter separately the
         # same analysis must report it (three distinct nonzero stresses -> rank 3).
-        import aero_ff
-        monkeypatch.setattr(aero_ff, "murnaghan_rho_vL_sq", _separable_rho_vL_sq)
-        r = aero_ff.murnaghan_identifiability(100e9, 80e9, [1e6, 5e6, 2e7], 7800)
+        from aero_ff import murnaghan_identifiability
+        monkeypatch.setattr("aero_ff.murnaghan_rho_vL_sq", _separable_rho_vL_sq)
+        r = murnaghan_identifiability(100e9, 80e9, [1e6, 5e6, 2e7], 7800)
         assert r["sensitivity_rank"] == 3
         assert r["individual_ABC_identifiable"] is True
-        assert aero_ff.murnaghan_identifiability(100e9, 80e9, [1e6, 5e6], 7800)["sensitivity_rank"] == 2
+        assert murnaghan_identifiability(100e9, 80e9, [1e6, 5e6], 7800)["sensitivity_rank"] == 2
 
     def test_identifiability_axis_can_veto(self, monkeypatch):
-        import aero_ff
         import formula_governance as FG
-        monkeypatch.setattr(aero_ff, "murnaghan_rho_vL_sq", _separable_rho_vL_sq)
+        monkeypatch.setattr("aero_ff.murnaghan_rho_vL_sq", _separable_rho_vL_sq)
         scores, names = FG.acoustic_axes()
         assert dict(zip(names, scores))["aero_identifiability_honest"] == 0.0
         r = FG.governed_validation(tau=0.5)
