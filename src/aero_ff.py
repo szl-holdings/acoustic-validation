@@ -88,6 +88,9 @@ def murnaghan_identifiability(lam: float, mu: float, stresses: list[float],
     """
     from fractions import Fraction
 
+    # Read once: stresses are iterated twice below, and a one-shot iterator
+    # would otherwise be reported as "no stress state" (rank 0).
+    stresses = list(stresses)
     if 3 * lam + 2 * mu <= 0 or rho0 <= 0:
         raise ValueError("invalid material constants")
     if not all(math.isfinite(s) for s in stresses):

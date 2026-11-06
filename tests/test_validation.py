@@ -307,6 +307,12 @@ class TestMurnaghanIdentifiabilityIsComputed:
         assert r["identifiable_combination"] == "S = 2A + 10B + 6C"
         assert r["individual_ABC_identifiable"] is False
 
+    def test_stresses_from_a_one_shot_iterator_are_not_read_as_no_data(self):
+        from aero_ff import murnaghan_identifiability
+        r = murnaghan_identifiability(100e9, 80e9, iter([0.0, 1e6, 5e6, 2e7]), 7800)
+        assert r["sensitivity_rank"] == 1
+        assert r["identifiable_combination"] == "S = 2A + 10B + 6C"
+
     def test_rank_follows_the_formula(self, monkeypatch):
         # Falsifiability: under a stress law where A, B, C enter separately the
         # same analysis must report it (three distinct nonzero stresses -> rank 3).
