@@ -26,4 +26,5 @@ jobs:
         run: |
           python src/burgers.py
           python src/duffing.py
+          python src/ns_regularization.py
           python src/aero_ff.py
