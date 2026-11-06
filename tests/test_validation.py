@@ -262,6 +262,22 @@ class TestFailClosedReceiptContract:
         r = FG.governed_validation(tau, weights=weights)
         assert (r["verdict"], r["code"], r["lambda"]) == ("BLOCK", "LAMBDA_TAU_INVALID", 0.0)
 
+    @pytest.mark.parametrize("axes,weights,tau,expected", [
+        # Exact delta = log(Lambda) - log(tau) is +1.29e-4 and -1.36e-4 here,
+        # over 1e5 times TIE_EPS, so neither case is a tie. tau is the
+        # subnormal float that exp(log Lambda) rounds to: log() of that
+        # rounded value would see delta == 0 and wrongly ABSTAIN.
+        ([1e-320, 2e-320], [0.5, 0.5], 1.414e-320, ("GO", None)),
+        ([3e-321, 7e-322, 1e-319], [0.25, 0.25, 0.5], 1.2045e-320, ("NO_GO", "BELOW_TAU")),
+    ])
+    def test_gate_compares_the_unrounded_log_lambda(self, axes, weights, tau, expected):
+        import formula_governance as FG
+        # spec gate/compare: "log space on the unrounded value".
+        assert FG.lambda_v1(axes, weights) == tau
+        assert FG.gate_v1(axes, weights, tau) == expected
+        assert math.exp(FG.log_lambda_v1(axes, weights)) == FG.lambda_v1(axes, weights)
+        assert FG.log_lambda_v1([0.0, 1.0], [0.5, 0.5]) == -math.inf
+
 
 def _separable_rho_vL_sq(lam, mu, A, B, C, sigma):
     """A counterfactual stress law in which A, B and C enter with different

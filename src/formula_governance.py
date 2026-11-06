@@ -74,28 +74,42 @@ def validate_lambda_inputs(axes: Any, weights: Any) -> None:
         raise LambdaV1Error("LAMBDA_WEIGHT_SUM", f"fsum(weights)={total!r}")
 
 
-def lambda_v1(axes: list[float], weights: list[float]) -> float:
-    """Weighted geometric mean per szl.lambda/v1. Zero axis => 0 (veto)."""
+def log_lambda_v1(axes: list[float], weights: list[float]) -> float:
+    """log Lambda_w(x) = fsum(w_k * log x_k); -inf if some axis is 0 (veto)."""
     validate_lambda_inputs(axes, weights)
     if any(x == 0 for x in axes):
-        return 0.0
-    return math.exp(math.fsum(w * math.log(x) for x, w in zip(axes, weights)))
+        return -math.inf
+    return math.fsum(w * math.log(x) for x, w in zip(axes, weights))
+
+
+def lambda_v1(axes: list[float], weights: list[float]) -> float:
+    """Weighted geometric mean per szl.lambda/v1. Zero axis => 0 (veto)."""
+    log_lam = log_lambda_v1(axes, weights)
+    return 0.0 if log_lam == -math.inf else math.exp(log_lam)
 
 
 def gate_v1(axes: list[float], weights: list[float], tau: float) -> tuple[str, str | None]:
-    """szl.lambda/v1 gate. Returns (verdict, code). tau is required."""
+    """szl.lambda/v1 gate. Returns (verdict, code). tau is required.
+
+    The compare is in log space on the unrounded value, as the spec requires
+    (gate/compare: delta = log_lambda - log(tau)). Taking log() of the rounded
+    Lambda instead changes verdicts: for a subnormal Lambda the error can be
+    1e-4 or more in log space (over 1e5 x TIE_EPS), and for a normal one an
+    ulp, which flips verdicts at the edge of the tie band.
+    """
     if not _is_real(tau) or (isinstance(tau, float) and not math.isfinite(tau)) \
             or not (0 < tau <= 1):
         return BLOCK, "LAMBDA_TAU_INVALID"
     try:
-        lam = lambda_v1(axes, weights)
+        log_lam = log_lambda_v1(axes, weights)
     except LambdaV1Error as e:
         return BLOCK, e.code
-    if lam == 0.0:
+    if log_lam == -math.inf:
         return NO_GO, ZERO_VETO
-    if abs(math.log(lam) - math.log(tau)) <= TIE_EPS:
+    delta = log_lam - math.log(tau)
+    if abs(delta) <= TIE_EPS:
         return ABSTAIN, NUMERIC_TIE
-    return (GO, None) if math.log(lam) > math.log(tau) else (NO_GO, BELOW_TAU)
+    return (GO, None) if delta > 0 else (NO_GO, BELOW_TAU)
 
 
 # --- Acoustic formula axis scores -------------------------------------------
