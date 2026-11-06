@@ -64,8 +64,14 @@ def validate_lambda_inputs(axes: Any, weights: Any) -> None:
     for i, w in enumerate(weights):
         if w <= 0:
             raise LambdaV1Error("LAMBDA_WEIGHT_NONPOSITIVE", f"weights[{i}]={w!r}")
-    if abs(math.fsum(weights) - 1.0) > WEIGHT_SUM_TOL:
-        raise LambdaV1Error("LAMBDA_WEIGHT_SUM", f"fsum(weights)={math.fsum(weights)!r}")
+    # Finite positive weights can still overflow fsum (e.g. [1e308, 1e308]); the
+    # reference maps that to LAMBDA_WEIGHT_SUM so the gate BLOCKs, never raises.
+    try:
+        total = math.fsum(weights)
+    except OverflowError:
+        raise LambdaV1Error("LAMBDA_WEIGHT_SUM", "sum of weights overflows a float") from None
+    if not abs(total - 1.0) <= WEIGHT_SUM_TOL:
+        raise LambdaV1Error("LAMBDA_WEIGHT_SUM", f"fsum(weights)={total!r}")
 
 
 def lambda_v1(axes: list[float], weights: list[float]) -> float:
@@ -141,13 +147,14 @@ def governed_validation(tau: float,
     verdict, code = gate_v1(scores, weights, tau)
     try:
         lam = lambda_v1(scores, weights)
-    except LambdaV1Error as e:
+    except LambdaV1Error:
         # gate_v1 already returned BLOCK; preserve the fail-closed receipt
-        # instead of raising before the caller sees it.
+        # instead of raising before the caller sees it. Keep the gate's code:
+        # tau is checked first, so with an invalid tau AND invalid weights the
+        # contract's code is LAMBDA_TAU_INVALID, not the weights' error.
         if verdict != BLOCK:
             raise
         lam = 0.0
-        code = e.code
     receipt = {
         "schema": "szl.acoustic.governed/v1",
         "lambda_schema": SCHEMA,

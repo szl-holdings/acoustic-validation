@@ -229,3 +229,36 @@ def test_governed_validation_invalid_weights_fail_closed_receipt():
     assert r["verdict"] == "BLOCK"
     assert r["code"] == "LAMBDA_LENGTH_MISMATCH"
     assert r["lambda"] == 0.0
+
+
+class TestFailClosedReceiptContract:
+    """szl.lambda/v1 (szl-lambda-gate reference/szl_lambda_v1.py): the gate never
+    raises on bad input, it BLOCKs; tau is checked first; ports must agree with
+    the reference on every error code and verdict."""
+
+    def test_weight_sum_overflow_blocks_instead_of_raising(self):
+        import formula_governance as FG
+        # Finite, positive weights whose fsum overflows a float: the reference
+        # reports LAMBDA_WEIGHT_SUM. An OverflowError must not escape the gate.
+        with pytest.raises(FG.LambdaV1Error) as e:
+            FG.lambda_v1([0.5, 0.5], [1e308, 1e308])
+        assert e.value.code == "LAMBDA_WEIGHT_SUM"
+        assert FG.gate_v1([0.5, 0.5], [1e308, 1e308], 0.5) == (FG.BLOCK, "LAMBDA_WEIGHT_SUM")
+
+    def test_governed_validation_weight_overflow_returns_block_receipt(self):
+        import formula_governance as FG
+        r = FG.governed_validation(0.5, weights=[1e308] * 8)
+        assert (r["verdict"], r["code"], r["lambda"]) == ("BLOCK", "LAMBDA_WEIGHT_SUM", 0.0)
+
+    @pytest.mark.parametrize("tau,weights", [
+        (1.5, [1.5, -0.5]),           # tau invalid + length mismatch
+        (0.0, [0.2] * 8),             # tau invalid + weights sum to 1.6
+        (float("nan"), [1e308] * 8),  # tau invalid + weight sum overflows
+    ])
+    def test_receipt_code_is_the_gate_code_when_tau_is_also_invalid(self, tau, weights):
+        import formula_governance as FG
+        scores, _ = FG.acoustic_axes()
+        assert FG.gate_v1(scores, weights, tau) == (FG.BLOCK, "LAMBDA_TAU_INVALID")
+        r = FG.governed_validation(tau, weights=weights)
+        assert (r["verdict"], r["code"], r["lambda"]) == ("BLOCK", "LAMBDA_TAU_INVALID", 0.0)
+
