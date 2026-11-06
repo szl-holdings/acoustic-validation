@@ -64,32 +64,52 @@ def validate_lambda_inputs(axes: Any, weights: Any) -> None:
     for i, w in enumerate(weights):
         if w <= 0:
             raise LambdaV1Error("LAMBDA_WEIGHT_NONPOSITIVE", f"weights[{i}]={w!r}")
-    if abs(math.fsum(weights) - 1.0) > WEIGHT_SUM_TOL:
-        raise LambdaV1Error("LAMBDA_WEIGHT_SUM", f"fsum(weights)={math.fsum(weights)!r}")
+    # Finite positive weights can still overflow fsum (e.g. [1e308, 1e308]); the
+    # reference maps that to LAMBDA_WEIGHT_SUM so the gate BLOCKs, never raises.
+    try:
+        total = math.fsum(weights)
+    except OverflowError:
+        raise LambdaV1Error("LAMBDA_WEIGHT_SUM", "sum of weights overflows a float") from None
+    if not abs(total - 1.0) <= WEIGHT_SUM_TOL:
+        raise LambdaV1Error("LAMBDA_WEIGHT_SUM", f"fsum(weights)={total!r}")
+
+
+def log_lambda_v1(axes: list[float], weights: list[float]) -> float:
+    """log Lambda_w(x) = fsum(w_k * log x_k); -inf if some axis is 0 (veto)."""
+    validate_lambda_inputs(axes, weights)
+    if any(x == 0 for x in axes):
+        return -math.inf
+    return math.fsum(w * math.log(x) for x, w in zip(axes, weights))
 
 
 def lambda_v1(axes: list[float], weights: list[float]) -> float:
     """Weighted geometric mean per szl.lambda/v1. Zero axis => 0 (veto)."""
-    validate_lambda_inputs(axes, weights)
-    if any(x == 0 for x in axes):
-        return 0.0
-    return math.exp(math.fsum(w * math.log(x) for x, w in zip(axes, weights)))
+    log_lam = log_lambda_v1(axes, weights)
+    return 0.0 if log_lam == -math.inf else math.exp(log_lam)
 
 
 def gate_v1(axes: list[float], weights: list[float], tau: float) -> tuple[str, str | None]:
-    """szl.lambda/v1 gate. Returns (verdict, code). tau is required."""
+    """szl.lambda/v1 gate. Returns (verdict, code). tau is required.
+
+    The compare is in log space on the unrounded value, as the spec requires
+    (gate/compare: delta = log_lambda - log(tau)). Taking log() of the rounded
+    Lambda instead changes verdicts: for a subnormal Lambda the error can be
+    1e-4 or more in log space (over 1e5 x TIE_EPS), and for a normal one an
+    ulp, which flips verdicts at the edge of the tie band.
+    """
     if not _is_real(tau) or (isinstance(tau, float) and not math.isfinite(tau)) \
             or not (0 < tau <= 1):
         return BLOCK, "LAMBDA_TAU_INVALID"
     try:
-        lam = lambda_v1(axes, weights)
+        log_lam = log_lambda_v1(axes, weights)
     except LambdaV1Error as e:
         return BLOCK, e.code
-    if lam == 0.0:
+    if log_lam == -math.inf:
         return NO_GO, ZERO_VETO
-    if abs(math.log(lam) - math.log(tau)) <= TIE_EPS:
+    delta = log_lam - math.log(tau)
+    if abs(delta) <= TIE_EPS:
         return ABSTAIN, NUMERIC_TIE
-    return (GO, None) if math.log(lam) > math.log(tau) else (NO_GO, BELOW_TAU)
+    return (GO, None) if delta > 0 else (NO_GO, BELOW_TAU)
 
 
 # --- Acoustic formula axis scores -------------------------------------------
@@ -122,8 +142,13 @@ def acoustic_axes() -> tuple[list[float], list[str]]:
 
     binary(aero_ff.murnaghan_vL(100e9, 80e9, -100e9, -50e9, -30e9, 0.0, 7800) > 0,
            "aero_murnaghan_physical")
-    ident = aero_ff.murnaghan_identifiability(100e9, 80e9, [0.0, 1e6], 7800)
-    binary(ident["individual_ABC_identifiable"] is False, "aero_identifiability_honest")
+    # Three distinct nonzero stress states would expose rank 2 or 3 if A, B, C
+    # entered vL separately, so this axis can fail: it checks the documented
+    # claim (rank 1, only S = 2A + 10B + 6C identifiable) against the formula.
+    ident = aero_ff.murnaghan_identifiability(100e9, 80e9, [0.0, 1e6, 5e6, 2e7], 7800)
+    binary(ident["sensitivity_rank"] == 1
+           and ident["identifiable_combination"] == "S = 2A + 10B + 6C"
+           and ident["individual_ABC_identifiable"] is False, "aero_identifiability_honest")
     ep = aero_ff.exceptional_point_2x2(1.0, 0.5, 0.5)
     binary(ep["is_true_EP"], "aero_ep_defectiveness")
     binary(aero_ff.chern_number_dirac(-1.0, nk=24) == -1, "aero_chern_quantization")
@@ -141,13 +166,14 @@ def governed_validation(tau: float,
     verdict, code = gate_v1(scores, weights, tau)
     try:
         lam = lambda_v1(scores, weights)
-    except LambdaV1Error as e:
+    except LambdaV1Error:
         # gate_v1 already returned BLOCK; preserve the fail-closed receipt
-        # instead of raising before the caller sees it.
+        # instead of raising before the caller sees it. Keep the gate's code:
+        # tau is checked first, so with an invalid tau AND invalid weights the
+        # contract's code is LAMBDA_TAU_INVALID, not the weights' error.
         if verdict != BLOCK:
             raise
         lam = 0.0
-        code = e.code
     receipt = {
         "schema": "szl.acoustic.governed/v1",
         "lambda_schema": SCHEMA,

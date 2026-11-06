@@ -16,49 +16,115 @@ import math
 import sys
 
 
+def murnaghan_rho_vL_sq(lam, mu, A, B, C, sigma):
+    """rho0 * vL^2 under uniaxial stress sigma: the right-hand side of the Murnaghan relation.
+
+    Affine in (A, B, C). Plain arithmetic only, so it also evaluates exactly on
+    fractions.Fraction inputs (murnaghan_identifiability relies on that).
+    """
+    denom = 3 * lam + 2 * mu
+    if denom <= 0:
+        raise ValueError("invalid material constants")
+    coeff = (7 * lam + 10 * mu + 2 * A + 10 * B + 6 * C) / denom
+    return lam + 2 * mu - coeff * sigma
+
+
 def murnaghan_vL(lam: float, mu: float, A: float, B: float, C: float,
                  sigma: float, rho0: float) -> float:
     """Longitudinal wave velocity under finite uniaxial stress (Murnaghan).
 
     rho0 * vL^2 = lam + 2mu - [(7*lam + 10*mu + 2A + 10B + 6C) / (3*lam + 2*mu)] * sigma
     """
-    denom = 3 * lam + 2 * mu
-    if denom <= 0 or rho0 <= 0:
+    if 3 * lam + 2 * mu <= 0 or rho0 <= 0:
         raise ValueError("invalid material constants")
-    coeff = (7 * lam + 10 * mu + 2 * A + 10 * B + 6 * C) / denom
-    vL_sq = (lam + 2 * mu - coeff * sigma) / rho0
+    vL_sq = murnaghan_rho_vL_sq(lam, mu, A, B, C, sigma) / rho0
     if vL_sq <= 0:
         raise ValueError("non-physical: vL^2 <= 0 at this stress")
     return math.sqrt(vL_sq)
+
+
+def _exact_rank(rows: list[list]) -> int:
+    """Rank of a small matrix of fractions.Fraction entries (exact Gaussian elimination)."""
+    m = [list(r) for r in rows]
+    rank = 0
+    for c in range(len(m[0]) if m else 0):
+        pivot = next((i for i in range(rank, len(m)) if m[i][c] != 0), None)
+        if pivot is None:
+            continue
+        m[rank], m[pivot] = m[pivot], m[rank]
+        for i in range(len(m)):
+            if i != rank and m[i][c] != 0:
+                f = m[i][c] / m[rank][c]
+                m[i] = [a - f * b for a, b in zip(m[i], m[rank])]
+        rank += 1
+    return rank
+
+
+def _primitive_direction(row: list) -> list[int]:
+    """Smallest integer vector parallel to a nonzero Fraction row, first nonzero entry positive."""
+    den = math.lcm(*(x.denominator for x in row))
+    ints = [int(x * den) for x in row]
+    g = math.gcd(*ints)
+    ints = [v // g for v in ints]
+    sign = 1 if next(v for v in ints if v != 0) > 0 else -1
+    return [sign * v for v in ints]
 
 
 def murnaghan_identifiability(lam: float, mu: float, stresses: list[float],
                               rho0: float) -> dict:
     """Identifiability analysis for (A, B, C) from vL(sigma) measurements.
 
-    vL depends on A, B, C only through the single scalar combination
-    S = 2A + 10B + 6C, so velocity measurements identify S, never the
-    individual constants. Returns the rank of the sensitivity matrix and
-    the identifiable combination.
-    """
-    def S(A, B, C):
-        return 2 * A + 10 * B + 6 * C
+    Computed from the formula, not asserted. rho0*vL^2 (murnaghan_rho_vL_sq)
+    is affine in (A, B, C), so its partial derivatives are exact unit
+    differences; they are evaluated in exact rational arithmetic at every
+    stress state given, and the exact rank of that sensitivity matrix is
+    reported. d(vL) = d(rho0*vL^2) / (2*rho0*vL) is a nonzero row scaling
+    wherever vL > 0, so the rank is the same for vL itself.
 
-    base = (1.0, 1.0, 1.0)
+    For the Murnaghan relation every row is proportional to (2, 10, 6):
+    stressed data identify the single combination S = 2A + 10B + 6C (rank 1),
+    never A, B, C individually, and data with no nonzero stress identify
+    nothing (rank 0).
+    """
+    from fractions import Fraction
+
+    # Read once: stresses are iterated twice below, and a one-shot iterator
+    # would otherwise be reported as "no stress state" (rank 0).
+    stresses = list(stresses)
+    if 3 * lam + 2 * mu <= 0 or rho0 <= 0:
+        raise ValueError("invalid material constants")
+    if not all(math.isfinite(s) for s in stresses):
+        raise ValueError("stresses must be finite")
+    L, M = Fraction(lam), Fraction(mu)
+    zero = Fraction(0)
     rows = []
-    h = 1e-6
-    for _ in stresses:
-        # d(vL)/d(A,B,C) is proportional to dS/d(A,B,C) = (2, 10, 6) for every sigma
-        rows.append([2.0, 10.0, 6.0])
-    # rank of a matrix whose every row is (2,10,6) is 1
-    rank = 1
+    for s in map(Fraction, stresses):
+        f0 = murnaghan_rho_vL_sq(L, M, zero, zero, zero, s)
+        rows.append([murnaghan_rho_vL_sq(L, M, *(Fraction(int(j == k)) for j in range(3)), s) - f0
+                     for k in range(3)])
+    rank = _exact_rank(rows)
+
+    direction = None
+    if rank == 0:
+        combination = None
+        note = ("No stress state with sigma != 0: velocity data carry no "
+                "information about A, B, C.")
+    elif rank == 1:
+        direction = _primitive_direction(next(r for r in rows if any(r)))
+        combination = ("S = 2A + 10B + 6C" if direction == [1, 5, 3]
+                       else f"{direction[0]}*A + {direction[1]}*B + {direction[2]}*C")
+        note = ("All stress states probe the same scalar combination; "
+                "recovering A, B, C individually requires independent "
+                "measurement modes (e.g. shear waves, different propagation axes).")
+    else:
+        combination = "A, B, C individually" if rank == 3 else "two independent combinations of A, B, C"
+        note = "The sensitivity rows are not all parallel; more than one combination is identifiable."
     return {
         "sensitivity_rank": rank,
-        "identifiable_combination": "S = 2A + 10B + 6C",
-        "individual_ABC_identifiable": False,
-        "note": "All stress states probe the same scalar combination; "
-                "recovering A, B, C individually requires independent "
-                "measurement modes (e.g. shear waves, different propagation axes).",
+        "sensitivity_direction": direction,
+        "identifiable_combination": combination,
+        "individual_ABC_identifiable": rank == 3,
+        "note": note,
     }
 
 
@@ -179,7 +245,9 @@ def selfcheck() -> bool:
     checks.append(v0 > 0 and v1 > 0 and abs(v1 - v0) > 0)
     # 2. Identifiability honesty: A,B,C not individually identifiable
     ident = murnaghan_identifiability(100e9, 80e9, [0.0, 1e6, 5e6], 7800)
-    checks.append(ident["sensitivity_rank"] == 1 and ident["individual_ABC_identifiable"] is False)
+    checks.append(ident["sensitivity_rank"] == 1 and ident["individual_ABC_identifiable"] is False
+                  and ident["identifiable_combination"] == "S = 2A + 10B + 6C")
+    checks.append(murnaghan_identifiability(100e9, 80e9, [0.0], 7800)["sensitivity_rank"] == 0)
     # 3. Poisson coupling sign and magnitude
     e = poisson_transverse(0.38, 1e6, 200e9)
     checks.append(-1e-3 < e < 0)
