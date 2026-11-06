@@ -128,8 +128,13 @@ def acoustic_axes() -> tuple[list[float], list[str]]:
 
     binary(aero_ff.murnaghan_vL(100e9, 80e9, -100e9, -50e9, -30e9, 0.0, 7800) > 0,
            "aero_murnaghan_physical")
-    ident = aero_ff.murnaghan_identifiability(100e9, 80e9, [0.0, 1e6], 7800)
-    binary(ident["individual_ABC_identifiable"] is False, "aero_identifiability_honest")
+    # Three distinct nonzero stress states would expose rank 2 or 3 if A, B, C
+    # entered vL separately, so this axis can fail: it checks the documented
+    # claim (rank 1, only S = 2A + 10B + 6C identifiable) against the formula.
+    ident = aero_ff.murnaghan_identifiability(100e9, 80e9, [0.0, 1e6, 5e6, 2e7], 7800)
+    binary(ident["sensitivity_rank"] == 1
+           and ident["identifiable_combination"] == "S = 2A + 10B + 6C"
+           and ident["individual_ABC_identifiable"] is False, "aero_identifiability_honest")
     ep = aero_ff.exceptional_point_2x2(1.0, 0.5, 0.5)
     binary(ep["is_true_EP"], "aero_ep_defectiveness")
     binary(aero_ff.chern_number_dirac(-1.0, nk=24) == -1, "aero_chern_quantization")

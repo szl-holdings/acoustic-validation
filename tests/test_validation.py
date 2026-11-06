@@ -262,3 +262,50 @@ class TestFailClosedReceiptContract:
         r = FG.governed_validation(tau, weights=weights)
         assert (r["verdict"], r["code"], r["lambda"]) == ("BLOCK", "LAMBDA_TAU_INVALID", 0.0)
 
+
+def _separable_rho_vL_sq(lam, mu, A, B, C, sigma):
+    """A counterfactual stress law in which A, B and C enter with different
+    powers of sigma, so velocity data COULD tell them apart."""
+    denom = 3 * lam + 2 * mu
+    return (lam + 2 * mu - (7 * lam + 10 * mu) / denom * sigma
+            - (2 * A * sigma + 10 * B * sigma ** 2 + 6 * C * sigma ** 3) / denom)
+
+
+class TestMurnaghanIdentifiabilityIsComputed:
+    """The (A, B, C) identifiability result must be computed from the Murnaghan
+    formula for the stress states supplied, not asserted as a constant."""
+
+    def test_zero_stress_data_identify_nothing(self):
+        from aero_ff import murnaghan_identifiability
+        for stresses in ([0.0], [], [0.0, 0.0]):
+            r = murnaghan_identifiability(100e9, 80e9, stresses, 7800)
+            assert r["sensitivity_rank"] == 0, stresses
+            assert r["identifiable_combination"] is None, stresses
+            assert r["individual_ABC_identifiable"] is False, stresses
+
+    def test_stressed_data_identify_exactly_S(self):
+        from aero_ff import murnaghan_identifiability
+        r = murnaghan_identifiability(100e9, 80e9, [0.0, 1e6, 5e6, 2e7], 7800)
+        assert r["sensitivity_rank"] == 1
+        assert r["sensitivity_direction"] == [1, 5, 3]  # parallel to (2, 10, 6)
+        assert r["identifiable_combination"] == "S = 2A + 10B + 6C"
+        assert r["individual_ABC_identifiable"] is False
+
+    def test_rank_follows_the_formula(self, monkeypatch):
+        # Falsifiability: under a stress law where A, B, C enter separately the
+        # same analysis must report it (three distinct nonzero stresses -> rank 3).
+        import aero_ff
+        monkeypatch.setattr(aero_ff, "murnaghan_rho_vL_sq", _separable_rho_vL_sq)
+        r = aero_ff.murnaghan_identifiability(100e9, 80e9, [1e6, 5e6, 2e7], 7800)
+        assert r["sensitivity_rank"] == 3
+        assert r["individual_ABC_identifiable"] is True
+        assert aero_ff.murnaghan_identifiability(100e9, 80e9, [1e6, 5e6], 7800)["sensitivity_rank"] == 2
+
+    def test_identifiability_axis_can_veto(self, monkeypatch):
+        import aero_ff
+        import formula_governance as FG
+        monkeypatch.setattr(aero_ff, "murnaghan_rho_vL_sq", _separable_rho_vL_sq)
+        scores, names = FG.acoustic_axes()
+        assert dict(zip(names, scores))["aero_identifiability_honest"] == 0.0
+        r = FG.governed_validation(tau=0.5)
+        assert (r["verdict"], r["code"]) == ("NO_GO", "ZERO_VETO")
