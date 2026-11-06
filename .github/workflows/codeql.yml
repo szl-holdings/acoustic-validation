@@ -1,0 +1,20 @@
+name: CodeQL
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '28 4 * * 1'  # weekly, Monday 04:28 UTC
+permissions:
+  contents: read
+jobs:
+  analyze:
+    # Org reusable workflow, SHA-pinned (szl-holdings/.github@main as of 2026-11-05).
+    uses: szl-holdings/.github/.github/workflows/reusable-codeql.yml@c67bdb2b8ab26d08e755b4f5b6f0f9c5cfd3f309
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    with:
+      languages: '["actions","python"]'
