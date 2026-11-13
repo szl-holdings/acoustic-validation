@@ -1,6 +1,6 @@
 # Acoustic Validation
 
-**SZL × Chad Barnard: falsifiable acoustic framework with governed verification.**
+**Falsifiable acoustic framework with governed verification.**
 
 > Turn acoustic and fluid hypotheses into traceable, reproducible tests. Software results only — no physical claim is validated here.
 
@@ -59,7 +59,6 @@ python src/duffing.py    # exits 0 on pass, 1 on fail
 ## Collaborators
 
 - **Stephen P. Lutar Jr.** (SZL Holdings) — validation framework, governed infrastructure
-- **Chad Barnard** (Molecular Audio Canada) — acoustic research, device observations
 - **Paul Guarino** — Aero-FF framework author
 
 ## License

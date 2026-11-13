@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "acoustic-validation"
 version = "0.1.0"
-description = "SZL × Chad Barnard: Acoustic validation framework — Burgers equation, Duffing oscillator, Aero-FF falsifiable tests. Governed by IMMUNE receipts, served via NEXUS, monetized via x402."
+description = "Acoustic validation framework (software only): Burgers equation, Duffing oscillator and Aero-FF falsifiable tests. No physical claim is validated; this repository has no receipts, runtime or paid API."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
