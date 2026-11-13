@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: If you use this software, please cite it using the metadata from this file.
 type: software
-title: szl-holdings/acoustic-validation — SZL × Chad Barnard
+title: szl-holdings/acoustic-validation
 version: 0.1.0
 date-released: '2026-11-06'
 license: Apache-2.0
@@ -17,11 +17,9 @@ keywords:
 - acoustic-validation
 - aero-ff
 - burgers-equation
-- chad-barnard
 - duffing-oscillator
 - fluid-dynamics
 - immune-receipts
-- molecular-audio
 - nexus
 - x402
 - szl-holdings
